@@ -1,0 +1,5 @@
+package: github.com/coreos/etcd/etcd-backup
+import:
+- package: k8s.io/client-go
+  version: v2.0.0
+- package: golang.org/x/crypto
