@@ -10,3 +10,4 @@
 /hack/insta-discovery/.env
 *.test
 .idea
+vendor
