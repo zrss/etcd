@@ -28,3 +28,6 @@ CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s" -o bin/etcdctl ${REPO
 rm -f $GOPATH/src/vendor
 ln -s ${PWD}/etcd-backup/vendor $GOPATH/src
 CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s" -o bin/etcd-backup ${REPO_PATH}/etcd-backup
+
+# build etcd-dump-logs tool for debug
+# CGO_ENABLED=0 go build -a -installsuffix cgo -ldflags "-s" -o bin/etcd-dump-logs ${REPO_PATH}/tools/etcd-dump-logs
