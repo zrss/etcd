@@ -74,12 +74,15 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		}
 	}()
 
+	// start listening peer and client urls
 	if e.Peers, err = startPeerListeners(cfg); err != nil {
 		return
 	}
 	if e.sctxs, err = startClientListeners(cfg); err != nil {
 		return
 	}
+
+	// store actual client listener in e.Clients
 	for _, sctx := range e.sctxs {
 		e.Clients = append(e.Clients, sctx.l)
 	}
@@ -89,8 +92,18 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		token   string
 	)
 
+	// if there are somethings in wal dir
+	// it indicates that this member has been initialized
 	if !isMemberInitialized(cfg) {
 		urlsmap, token, err = cfg.PeerURLsMapAndToken("etcd")
+		// for static bootstrap
+		// default token
+		// etcd-cluster-1
+
+		// urlsmap
+		// infra0: peer url 1
+		// infra1: peer url 2
+		// ...
 		if err != nil {
 			return e, fmt.Errorf("error setting up initial cluster: %v", err)
 		}
@@ -109,17 +122,20 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 		InitialClusterToken:     token,
 		DiscoveryURL:            cfg.Durl,
 		DiscoveryProxy:          cfg.Dproxy,
-		NewCluster:              cfg.IsNewCluster(),
+		NewCluster:              cfg.IsNewCluster(), // cfg.ClusterState == "new"
 		ForceNewCluster:         cfg.ForceNewCluster,
 		PeerTLSInfo:             cfg.PeerTLSInfo,
 		TickMs:                  cfg.TickMs,
 		ElectionTicks:           cfg.ElectionTicks(),
 		AutoCompactionRetention: cfg.AutoCompactionRetention,
 		QuotaBackendBytes:       cfg.QuotaBackendBytes,
-		StrictReconfigCheck:     cfg.StrictReconfigCheck,
+		StrictReconfigCheck:     cfg.StrictReconfigCheck, // default true
 		ClientCertAuthEnabled:   cfg.ClientTLSInfo.ClientCertAuth,
 	}
 
+	// start round transport for sending requests
+	// stream
+	// pipeline
 	if e.Server, err = etcdserver.NewServer(srvcfg); err != nil {
 		return
 	}
@@ -127,7 +143,9 @@ func StartEtcd(inCfg *Config) (e *Etcd, err error) {
 	// buffer channel so goroutines on closed connections won't wait forever
 	e.errc = make(chan error, len(e.Peers)+len(e.Clients)+2*len(e.sctxs))
 
+	// start some goroutines to launch etcd service
 	e.Server.Start()
+	// binding url to handlers
 	if err = e.serve(); err != nil {
 		return
 	}
@@ -216,6 +234,7 @@ func startPeerListeners(cfg *Config) (plns []net.Listener, err error) {
 }
 
 func startClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err error) {
+	// https validate
 	if cfg.ClientAutoTLS && cfg.ClientTLSInfo.Empty() {
 		chosts := make([]string, len(cfg.LCUrls))
 		for i, u := range cfg.LCUrls {
@@ -229,6 +248,7 @@ func startClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err error) {
 		plog.Warningf("ignoring client auto TLS since certs given")
 	}
 
+	// golang pprof
 	if cfg.EnablePprof {
 		plog.Infof("pprof is enabled under %s", pprofPrefix)
 	}
@@ -249,49 +269,79 @@ func startClientListeners(cfg *Config) (sctxs map[string]*serveCtx, err error) {
 			return nil, fmt.Errorf("TLS key/cert (--cert-file, --key-file) must be provided for client url %s with HTTPs scheme", u.String())
 		}
 
+		// default tcp protocol
 		proto := "tcp"
 		if u.Scheme == "unix" || u.Scheme == "unixs" {
 			proto = "unix"
 		}
 
+		// secure vs insecure
+		// these two var must be converse
 		sctx.secure = u.Scheme == "https" || u.Scheme == "unixs"
 		sctx.insecure = !sctx.secure
+
+		// what the hell there is an old ctx ?
+		// maybe this case considerate about duplicated client url
+		// subsequent values will overwrite the previous values
+		// why not assign it directly ?
 		if oldctx := sctxs[u.Host]; oldctx != nil {
 			oldctx.secure = oldctx.secure || sctx.secure
 			oldctx.insecure = oldctx.insecure || sctx.insecure
+
+			// has been listened
+			// so skip follow codes
 			continue
 		}
 
+		// start listening address
+		// it will resolve url to ip address in inner code of net.Listen
 		if sctx.l, err = net.Listen(proto, u.Host); err != nil {
 			return nil, err
 		}
 
+		// get the number of file descriptor
 		if fdLimit, fderr := runtimeutil.FDLimit(); fderr == nil {
+			// <= 150 gg
 			if fdLimit <= reservedInternalFDNum {
 				plog.Fatalf("file descriptor limit[%d] of etcd process is too low, and should be set higher than %d to ensure internal usage", fdLimit, reservedInternalFDNum)
 			}
+			// keep 150 for etcd internal usage
+			// and the left be used for client service
+			// don't worry about performance, it just make(..., int(fdLimit-reservedInternalFDNum)) for future usages
+			// it can set keep alive and keep alive timeout of underlying tcp connection
 			sctx.l = transport.LimitListener(sctx.l, int(fdLimit-reservedInternalFDNum))
 		}
 
 		if proto == "tcp" {
+			// so wrap twice time here
+			// previous its LimitListener
 			if sctx.l, err = transport.NewKeepAliveListener(sctx.l, "tcp", nil); err != nil {
 				return nil, err
 			}
 		}
 
+		// it finish listening job for one of listen client url at here
 		plog.Info("listening for client requests on ", u.Host)
+		// don't forget defer to close listener in serve context
 		defer func() {
 			if err != nil {
 				sctx.l.Close()
 				plog.Info("stopping listening for client requests on ", u.Host)
 			}
 		}()
+
+		// a interesting point
+		// i can inject my handlers to etcd
 		for k := range cfg.UserHandlers {
 			sctx.userHandlers[k] = cfg.UserHandlers[k]
 		}
+
+		// register pprof http handlers
 		if cfg.EnablePprof {
 			sctx.registerPprof()
 		}
+
+		// record sctx for this client url (u.Host)
 		sctxs[u.Host] = sctx
 	}
 	return sctxs, nil
@@ -319,10 +369,13 @@ func (e *Etcd) serve() (err error) {
 	}
 
 	// Start a client server goroutine for each listen address
+	// v2 http client handler
 	ch := http.Handler(&cors.CORSHandler{
 		Handler: v2http.NewClientHandler(e.Server, e.Server.Cfg.ReqTimeout()),
 		Info:    e.cfg.CorsInfo,
 	})
+
+	// v3 grpc
 	for _, sctx := range e.sctxs {
 		// read timeout does not work with http close notify
 		// TODO: https://github.com/golang/go/issues/9524

@@ -223,6 +223,8 @@ func (wg *watcherGroup) choose(maxWatchers int, curRev, compactRev int64) (*watc
 	if len(wg.watchers) < maxWatchers {
 		return wg, wg.chooseAll(curRev, compactRev)
 	}
+	// truncated currently watcher group
+	// get a fixed number (512) new watcher group to return
 	ret := newWatcherGroup()
 	for w := range wg.watchers {
 		if maxWatchers <= 0 {
@@ -231,6 +233,7 @@ func (wg *watcherGroup) choose(maxWatchers int, curRev, compactRev int64) (*watc
 		maxWatchers--
 		ret.add(w)
 	}
+	// use chooseAll method to return in new watcher group
 	return &ret, ret.chooseAll(curRev, compactRev)
 }
 
@@ -240,8 +243,11 @@ func (wg *watcherGroup) chooseAll(curRev, compactRev int64) int64 {
 		if w.minRev > curRev {
 			panic("watcher current revision should not exceed current revision")
 		}
+		// watch revision has been compacted
 		if w.minRev < compactRev {
 			select {
+			// put response to channel
+			// and delete this watcher from watcher group
 			case w.ch <- WatchResponse{WatchID: w.id, CompactRevision: compactRev}:
 				w.compacted = true
 				wg.delete(w)
@@ -250,6 +256,7 @@ func (wg *watcherGroup) chooseAll(curRev, compactRev int64) int64 {
 			}
 			continue
 		}
+		// record the minimum rev of all watchers in watcher group
 		if minRev > w.minRev {
 			minRev = w.minRev
 		}

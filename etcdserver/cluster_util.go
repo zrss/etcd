@@ -64,6 +64,10 @@ func getClusterFromRemotePeers(urls []string, timeout time.Duration, logerr bool
 		Transport: rt,
 		Timeout:   timeout,
 	}
+
+	// if user only config one peer urls
+	// but unfortunately http get /members failed due to network congestion
+	// can this part add a retry strategy ?
 	for _, u := range urls {
 		resp, err := cc.Get(u + "/members")
 		if err != nil {
@@ -100,6 +104,7 @@ func getClusterFromRemotePeers(urls []string, timeout time.Duration, logerr bool
 		// if membership members are not present then the raft cluster formed will be
 		// an invalid empty cluster hence return failed to get raft cluster member(s) from the given urls error
 		if len(membs) > 0 {
+			// why token is empty ?
 			return membership.NewClusterFromMembers("", id, membs), nil
 		}
 

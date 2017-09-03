@@ -124,10 +124,12 @@ type Transport struct {
 
 func (t *Transport) Start() error {
 	var err error
+	// read/write timeout
 	t.streamRt, err = newStreamRoundTripper(t.TLSInfo, t.DialTimeout)
 	if err != nil {
 		return err
 	}
+	// no read/write timeout
 	t.pipelineRt, err = NewRoundTripper(t.TLSInfo, t.DialTimeout)
 	if err != nil {
 		return err
@@ -169,14 +171,19 @@ func (t *Transport) Send(msgs []raftpb.Message) {
 		g, rok := t.remotes[to]
 		t.mu.RUnlock()
 
+		// have any difference ?
 		if pok {
 			if m.Type == raftpb.MsgApp {
 				t.ServerStats.SendAppendReq(m.Size())
 			}
+			// pipeline
+			// stream
+			// supports many message type
 			p.send(m)
 			continue
 		}
 
+		// remotes can only use pipeline
 		if rok {
 			g.send(m)
 			continue

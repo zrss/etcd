@@ -270,6 +270,8 @@ func (n *node) run(r *raft) {
 	var propc chan pb.Message
 	var readyc chan Ready
 	var advancec chan struct{}
+
+	// what the hell of these two var ?
 	var prevLastUnstablei, prevLastUnstablet uint64
 	var havePrevLastUnstablei bool
 	var prevSnapi uint64

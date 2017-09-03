@@ -243,27 +243,38 @@ type EtcdServer struct {
 // NewServer creates a new EtcdServer from the supplied configuration. The
 // configuration is considered static for the lifetime of the EtcdServer.
 func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
+	// seems a v2 storage
 	st := store.New(StoreClusterPrefix, StoreKeysPrefix)
 
 	var (
 		w  *wal.WAL
 		n  raft.Node
 		s  *raft.MemoryStorage
+
+		// raft node id
 		id types.ID
+
+		//
 		cl *membership.RaftCluster
 	)
 
+	// create data-dir
 	if terr := fileutil.TouchDirAll(cfg.DataDir); terr != nil {
 		return nil, fmt.Errorf("cannot access data directory: %v", terr)
 	}
 
 	haveWAL := wal.Exist(cfg.WALDir())
 
+	// create snap dir
+	// data-dir/member/snap
 	if err = fileutil.TouchDirAll(cfg.SnapDir()); err != nil {
 		plog.Fatalf("create snapshot directory error: %v", err)
 	}
+
+	// snapshot (.snap)
 	ss := snap.New(cfg.SnapDir())
 
+	// db
 	bepath := filepath.Join(cfg.SnapDir(), databaseFilename)
 	beExist := fileutil.Exist(bepath)
 
@@ -288,6 +299,9 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 		}
 	}()
 
+	// what the hell of this
+	// okay listener use to accept request
+	// round tripper use to send request
 	prt, err := rafthttp.NewRoundTripper(cfg.PeerTLSInfo, cfg.peerDialTimeout())
 	if err != nil {
 		return nil, err
@@ -298,18 +312,31 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 	)
 
 	switch {
+	// don't have a wal file and --initial-cluster-state=existing
+	// member add case
 	case !haveWAL && !cfg.NewCluster:
+		// mainly to check its peer url in --initial-cluster config params
 		if err = cfg.VerifyJoinExisting(); err != nil {
 			return nil, err
 		}
+
+		// generate RaftCluster from --initial-cluster-token and --initial-cluster
 		cl, err = membership.NewClusterFromURLsMap(cfg.InitialClusterToken, cfg.InitialPeerURLsMap)
 		if err != nil {
 			return nil, err
 		}
+
+		// getRemotePeerURLs(cl, cfg.Name)
+		// actually get peer urls of cluster from previous cl excepts itself peer url
+
+		// GetClusterFromRemotePeers use these urls to descover previous cluster info
 		existingCluster, gerr := GetClusterFromRemotePeers(getRemotePeerURLs(cl, cfg.Name), prt)
 		if gerr != nil {
 			return nil, fmt.Errorf("cannot fetch cluster info from peer urls: %v", gerr)
 		}
+
+		// --initial-cluster must match currently cluster member info
+		// and assign cluster info to local (mainly member id)
 		if err = membership.ValidateClusterAndAssignIDs(cl, existingCluster); err != nil {
 			return nil, fmt.Errorf("error validating peerURLs %s: %v", existingCluster, err)
 		}
@@ -317,24 +344,50 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 			return nil, fmt.Errorf("incompatible with current running cluster")
 		}
 
+		// set local cluster members
 		remotes = existingCluster.Members()
+
+		// set local cluster id
 		cl.SetID(existingCluster.ID())
+
+		// v2
 		cl.SetStore(st)
+		// v3 bolt db
 		cl.SetBackend(be)
+		// print base config
 		cfg.Print()
+
+		// start raft state machine with no member id info
+		// id: raft id
+		// n: raft node
+		// s: MemoryStorage
+		// w: WAL
 		id, n, s, w = startNode(cfg, cl, nil)
+
+	// don't have a wal file and --initial-cluster-state=new
+	// fresh new start case
 	case !haveWAL && cfg.NewCluster:
+		// verify --advertise-peer-url must in --initial-cluster
 		if err = cfg.VerifyBootstrap(); err != nil {
 			return nil, err
 		}
+
 		cl, err = membership.NewClusterFromURLsMap(cfg.InitialClusterToken, cfg.InitialPeerURLsMap)
 		if err != nil {
 			return nil, err
 		}
+
 		m := cl.MemberByName(cfg.Name)
+
+		// get cluster member infos
+		// if failed then not bootstrapped
+		// if success then
+		// if member id and it has been publish its client url
+		// indicates that this member has been bootstrapped
 		if isMemberBootstrapped(cl, cfg.Name, prt, cfg.bootstrapTimeout()) {
 			return nil, fmt.Errorf("member %s has already been bootstrapped", m.ID)
 		}
+
 		if cfg.ShouldDiscover() {
 			var str string
 			str, err = discovery.JoinCluster(cfg.DiscoveryURL, cfg.DiscoveryProxy, m.ID, cfg.InitialPeerURLsMap.String())
@@ -353,11 +406,24 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 				return nil, err
 			}
 		}
+
+		// v2
 		cl.SetStore(st)
+		// v3
 		cl.SetBackend(be)
+		// print base config and
+		// --initial-advertise-peer-urls and --init-cluster
 		cfg.PrintWithInitial()
+
+		// start raft state machine with members id info
 		id, n, s, w = startNode(cfg, cl, cl.MemberIDs())
+
+	// have wal dir
+	// restart and recover case
 	case haveWAL:
+		// quite practical implementation of IsDirWritable
+		// write a .touch file in dir and defer remote it
+		// to test writable of dir
 		if err = fileutil.IsDirWriteable(cfg.MemberDir()); err != nil {
 			return nil, fmt.Errorf("cannot write to member directory: %v", err)
 		}
@@ -369,6 +435,9 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 		if cfg.ShouldDiscover() {
 			plog.Warningf("discovery token ignored since a cluster has already been initialized. Valid log found at %q", cfg.WALDir())
 		}
+
+		// v2
+		// reload v2 snapshot file
 		snapshot, err = ss.Load()
 		if err != nil && err != snap.ErrNoSnapshot {
 			return nil, err
@@ -379,15 +448,29 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 			}
 			plog.Infof("recovered store from snapshot at index %d", snapshot.Metadata.Index)
 		}
+
+		// print base config
 		cfg.Print()
+
 		if !cfg.ForceNewCluster {
+			// v3 restart and recover
 			id, cl, n, s, w = restartNode(cfg, snapshot)
 		} else {
+			// v2 recover must set this param
+			// ForceNewStart --force-new-start
 			id, cl, n, s, w = restartAsStandaloneNode(cfg, snapshot)
 		}
+
+		// why in this start case, start raft state machine before setting storage
+		// v2
 		cl.SetStore(st)
+		// v3
 		cl.SetBackend(be)
+
+		// recover cluster member and version info
 		cl.Recover(api.UpdateCapability)
+
+		// v3 must have a db file as its backend
 		if cl.Version() != nil && !cl.Version().LessThan(semver.Version{Major: 3}) && !beExist {
 			os.RemoveAll(bepath)
 			return nil, fmt.Errorf("database file (%v) of the backend is missing", bepath)
@@ -396,6 +479,9 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 		return nil, fmt.Errorf("unsupported bootstrap config")
 	}
 
+	// useless
+	// as before has created snap dir
+	// which is under the member dir
 	if terr := fileutil.TouchDirAll(cfg.MemberDir()); terr != nil {
 		return nil, fmt.Errorf("cannot access member directory: %v", terr)
 	}
@@ -475,6 +561,8 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 	}
 
 	// TODO: move transport initialization near the definition of remote
+
+	// peer transport
 	tr := &rafthttp.Transport{
 		TLSInfo:     cfg.PeerTLSInfo,
 		DialTimeout: cfg.peerDialTimeout(),
@@ -491,11 +579,21 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 		return nil, err
 	}
 	// add all remotes into transport
+	// what the hell of the difference between remotes and cl.Members() ?
+	// remotes get from existing cluster
+	// cl members get from params of bootstrap ?
+
+	// here binding transport to peer url
+	// start pipeline with peer
 	for _, m := range remotes {
 		if m.ID != id {
 			tr.AddRemote(m.ID, m.PeerURLs)
 		}
 	}
+
+	// start pipeline
+	// start msgAppV2, msgApp stream writer
+	// start msgAppV2, msgApp stream reader
 	for _, m := range cl.Members() {
 		if m.ID != id {
 			tr.AddPeer(m.ID, m.PeerURLs)
@@ -511,8 +609,11 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 // It also starts a goroutine to publish its server information.
 func (s *EtcdServer) Start() {
 	s.start()
+	// publish member client url to cluster
 	s.goAttach(func() { s.publish(s.Cfg.ReqTimeout()) })
+	// purge file goroutine
 	s.goAttach(s.purgeFile)
+	// monitoring the number of file descriptor
 	s.goAttach(func() { monitorFileDescriptor(s.stopping) })
 	s.goAttach(s.monitorVersions)
 	s.goAttach(s.linearizableReadLoop)
@@ -618,6 +719,7 @@ func (s *EtcdServer) run() {
 		syncC <-chan time.Time
 	)
 	setSyncC := func(ch <-chan time.Time) {
+		// write lock
 		smu.Lock()
 		syncC = ch
 		smu.Unlock()
@@ -661,6 +763,8 @@ func (s *EtcdServer) run() {
 			}
 		},
 	}
+
+	// start raft node
 	s.r.start(rh)
 
 	// asynchronously accept apply packets, dispatch progress in-order
@@ -711,6 +815,7 @@ func (s *EtcdServer) run() {
 		expiredLeaseC = s.lessor.ExpiredLeasesC()
 	}
 
+	// try to understand it
 	for {
 		select {
 		case ap := <-s.r.apply():
@@ -1207,6 +1312,7 @@ func (s *EtcdServer) publish(timeout time.Duration) {
 		cancel()
 		switch err {
 		case nil:
+			// notify
 			close(s.readych)
 			plog.Infof("published %+v to cluster %s", s.attributes, s.cluster.ID())
 			return

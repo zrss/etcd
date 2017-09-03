@@ -59,6 +59,7 @@ func newServeCtx() *serveCtx {
 // read requests and then call handler to reply to them.
 func (sctx *serveCtx) serve(s *etcdserver.EtcdServer, tlscfg *tls.Config, handler http.Handler, errc chan<- error) error {
 	logger := defaultLog.New(ioutil.Discard, "etcdhttp", 0)
+	// block before finish publishing client url to cluster
 	<-s.ReadyNotify()
 	plog.Info("ready to serve client requests")
 
@@ -88,11 +89,14 @@ func (sctx *serveCtx) serve(s *etcdserver.EtcdServer, tlscfg *tls.Config, handle
 		plog.Noticef("serving insecure client requests on %s, this is strongly discouraged!", sctx.l.Addr().String())
 	}
 
+	//
 	if sctx.secure {
+		// grpc server
 		gs := v3rpc.Server(s, tlscfg)
 		handler = grpcHandlerFunc(gs, handler)
 
 		dtls := transport.ShallowCopyTLSConfig(tlscfg)
+
 		// trust local server
 		dtls.InsecureSkipVerify = true
 		creds := credentials.NewTLS(dtls)

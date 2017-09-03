@@ -57,6 +57,9 @@ type RaftCluster struct {
 func NewClusterFromURLsMap(token string, urlsmap types.URLsMap) (*RaftCluster, error) {
 	c := NewCluster(token)
 	for name, urls := range urlsmap {
+		// if token not change and peer url keep as before
+		// then member id won't change
+		// as time pass by its nil
 		m := NewMember(name, urls, token, nil)
 		if _, ok := c.members[m.ID]; ok {
 			return nil, fmt.Errorf("member exists with identical ID %v", m)
@@ -184,6 +187,12 @@ func (c *RaftCluster) String() string {
 	return b.String()
 }
 
+// generate raft cluster id
+// use all of member ids
+// one member ids use 8 bytes
+// sha1.Sum a value
+// then use previous 8 bytes as uint64
+// this value serve as cluster id
 func (c *RaftCluster) genID() {
 	mIDs := c.MemberIDs()
 	b := make([]byte, 8*len(mIDs))
@@ -207,14 +216,21 @@ func (c *RaftCluster) Recover(onSet func(*semver.Version)) {
 	c.Lock()
 	defer c.Unlock()
 
+	// recover member info from storage
 	c.members, c.removed = membersFromStore(c.store)
+	// get cluster version from store
 	c.version = clusterVersionFromStore(c.store)
+
+	// maybe for upgrade
 	mustDetectDowngrade(c.version)
 	onSet(c.version)
 
+	// print recover member info
 	for _, m := range c.members {
 		plog.Infof("added member %s %v to cluster %s from store", m.ID, m.PeerURLs, c.id)
 	}
+
+	// print cluster version
 	if c.version != nil {
 		plog.Infof("set the cluster version to %v from store", version.Cluster(c.version.String()))
 	}

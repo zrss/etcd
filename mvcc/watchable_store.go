@@ -266,19 +266,27 @@ func (s *watchableStore) syncWatchersLoop() {
 		s.mu.Lock()
 		st := time.Now()
 		lastUnsyncedWatchers := s.unsynced.size()
+
 		s.syncWatchers()
+
+		//
 		unsyncedWatchers := s.unsynced.size()
 		s.mu.Unlock()
+
+		// cal sync cost time
 		syncDuration := time.Since(st)
 
 		waitDuration := 100 * time.Millisecond
+
 		// more work pending?
+		// still has unsync watchers
 		if unsyncedWatchers != 0 && lastUnsyncedWatchers > unsyncedWatchers {
 			// be fair to other store operations by yielding time taken
 			waitDuration = syncDuration
 		}
 
 		select {
+		// wait sometime to start next sync
 		case <-time.After(waitDuration):
 		case <-s.stopc:
 			return
@@ -389,7 +397,15 @@ func (s *watchableStore) syncWatchers() {
 	// query the backend store of key-value pairs
 	curRev := s.store.currentRev.main
 	compactionRev := s.store.compactMainRev
+
+	// max sync 512 watchers per op
+	// this method will delete watchers that rev < compacted version
+	// and put watch response to channel
 	wg, minRev := s.unsynced.choose(maxWatchersPerSync, curRev, compactionRev)
+
+	// lock revision range
+	// from minRev to CurRev + 1
+	// [minRev, curRev]
 	minBytes, maxBytes := newRevBytes(), newRevBytes()
 	revToBytes(revision{main: minRev}, minBytes)
 	revToBytes(revision{main: curRev + 1}, maxBytes)
@@ -406,6 +422,9 @@ func (s *watchableStore) syncWatchers() {
 	wb := newWatcherBatch(wg, evs)
 	for w := range wg.watchers {
 		w.minRev = curRev + 1
+
+		// wb: watch batch
+		// eb maybe events batch
 
 		eb, ok := wb[w]
 		if !ok {

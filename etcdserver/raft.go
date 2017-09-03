@@ -137,6 +137,10 @@ func (r *raftNode) start(rh *raftReadyHandler) {
 	r.done = make(chan struct{})
 	internalTimeout := time.Second
 
+	// monitor channels
+	// but how to start it
+	// that is where to put the first message into channel
+	// to start all process
 	go func() {
 		defer r.onStop()
 		islead := false
@@ -147,10 +151,13 @@ func (r *raftNode) start(rh *raftReadyHandler) {
 				r.Tick()
 			case rd := <-r.Ready():
 				if rd.SoftState != nil {
+					// lead has changed
 					if lead := atomic.LoadUint64(&r.lead); rd.SoftState.Lead != raft.None && lead != rd.SoftState.Lead {
 						r.mu.Lock()
 						r.lt = time.Now()
 						r.mu.Unlock()
+
+						// prometheus record the count of leader changes
 						leaderChanges.Inc()
 					}
 
@@ -160,8 +167,10 @@ func (r *raftNode) start(rh *raftReadyHandler) {
 						hasLeader.Set(1)
 					}
 
+					// store current seen leader
 					atomic.StoreUint64(&r.lead, rd.SoftState.Lead)
 					islead = rd.RaftState == raft.StateLeader
+					// raft handler
 					rh.updateLeadership()
 				}
 
@@ -248,11 +257,17 @@ func updateCommittedIndex(ap *apply, rh *raftReadyHandler) {
 
 func (r *raftNode) sendMessages(ms []raftpb.Message) {
 	sentAppResp := false
+
+	// reverse loop waiting to send messages
 	for i := len(ms) - 1; i >= 0; i-- {
 		if r.isIDRemoved(ms[i].To) {
 			ms[i].To = 0
 		}
 
+		// what the hell ?
+		// if encounters a message app response
+		// then sentAppResp=true
+		// indicates that all message app response ms[i].To = 0
 		if ms[i].Type == raftpb.MsgAppResp {
 			if sentAppResp {
 				ms[i].To = 0
@@ -261,6 +276,8 @@ func (r *raftNode) sendMessages(ms []raftpb.Message) {
 			}
 		}
 
+		// the store for v2
+		// and the KV for v3
 		if ms[i].Type == raftpb.MsgSnap {
 			// There are two separate data store: the store for v2, and the KV for v3.
 			// The msgSnap only contains the most recent snapshot of store without KV.
@@ -273,7 +290,10 @@ func (r *raftNode) sendMessages(ms []raftpb.Message) {
 			}
 			ms[i].To = 0
 		}
+
+		// a heartbeat message
 		if ms[i].Type == raftpb.MsgHeartbeat {
+			// exceed maxDuration time
 			ok, exceed := r.td.Observe(ms[i].To)
 			if !ok {
 				// TODO: limit request rate.
@@ -283,6 +303,9 @@ func (r *raftNode) sendMessages(ms []raftpb.Message) {
 		}
 	}
 
+	// finally use transport to send all raftpb.Message
+	// that is the question
+	// send to whom ?
 	r.transport.Send(ms)
 }
 
@@ -340,9 +363,14 @@ func startNode(cfg *ServerConfig, cl *membership.RaftCluster, ids []types.ID) (i
 			ClusterID: uint64(cl.ID()),
 		},
 	)
+
+	// write metadata to wal
+	// member id and cluster id
 	if w, err = wal.Create(cfg.WALDir(), metadata); err != nil {
 		plog.Fatalf("create wal error: %v", err)
 	}
+
+	// record all peer member id
 	peers := make([]raft.Peer, len(ids))
 	for i, id := range ids {
 		ctx, err := json.Marshal((*cl).Member(id))
@@ -351,8 +379,11 @@ func startNode(cfg *ServerConfig, cl *membership.RaftCluster, ids []types.ID) (i
 		}
 		peers[i] = raft.Peer{ID: uint64(id), Context: ctx}
 	}
+
 	id = member.ID
 	plog.Infof("starting member %s in cluster %s", id, cl.ID())
+
+	// MemoryStorage ?
 	s = raft.NewMemoryStorage()
 	c := &raft.Config{
 		ID:              uint64(id),
@@ -364,6 +395,7 @@ func startNode(cfg *ServerConfig, cl *membership.RaftCluster, ids []types.ID) (i
 		CheckQuorum:     true,
 	}
 
+	// raft state machine
 	n = raft.StartNode(c, peers)
 	raftStatusMu.Lock()
 	raftStatus = n.Status

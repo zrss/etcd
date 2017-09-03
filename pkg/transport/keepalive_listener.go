@@ -21,6 +21,9 @@ import (
 	"time"
 )
 
+// what the hell of who implements this interface
+// I can't believe it
+// limit_listen implements these two methods
 type keepAliveConn interface {
 	SetKeepAlive(bool) error
 	SetKeepAlivePeriod(d time.Duration) error
@@ -72,6 +75,7 @@ func (l *tlsKeepaliveListener) Accept() (c net.Conn, err error) {
 	if err != nil {
 		return
 	}
+	// convert to specific interface
 	kac := c.(keepAliveConn)
 	// detection time: tcp_keepalive_time + tcp_keepalive_probes + tcp_keepalive_intvl
 	// default on linux:  30 + 8 * 30

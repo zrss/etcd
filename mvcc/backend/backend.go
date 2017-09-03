@@ -101,6 +101,7 @@ func NewDefaultBackend(path string) Backend {
 }
 
 func newBackend(path string, d time.Duration, limit int) *backend {
+	// bolt db
 	db, err := bolt.Open(path, 0600, boltOpenOptions)
 	if err != nil {
 		plog.Panicf("cannot open database at %s (%v)", path, err)
