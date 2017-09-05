@@ -680,7 +680,10 @@ func (s *EtcdServer) processInternalRaftRequestOnce(ctx context.Context, r pb.In
 	defer cancel()
 
 	start := time.Now()
+
+	// propose PutRequest
 	s.r.Propose(cctx, data)
+
 	proposalsPending.Inc()
 	defer proposalsPending.Dec()
 

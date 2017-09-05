@@ -1245,6 +1245,10 @@ func (s *EtcdServer) Leader() types.ID { return types.ID(s.Lead()) }
 // configure sends a configuration change through consensus and
 // then waits for it to be applied to the server. It
 // will block until the change is performed or there is an error.
+
+// it will block !!!
+// so simultaneously member add will grpc timeout at some cases
+// but actually it has been apply to cluster
 func (s *EtcdServer) configure(ctx context.Context, cc raftpb.ConfChange) error {
 	cc.ID = s.reqIDGen.Next()
 	ch := s.w.Register(cc.ID)

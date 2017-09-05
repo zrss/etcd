@@ -384,6 +384,7 @@ func startNode(cfg *ServerConfig, cl *membership.RaftCluster, ids []types.ID) (i
 	plog.Infof("starting member %s in cluster %s", id, cl.ID())
 
 	// MemoryStorage ?
+	// pb.Entry in memory
 	s = raft.NewMemoryStorage()
 	c := &raft.Config{
 		ID:              uint64(id),
