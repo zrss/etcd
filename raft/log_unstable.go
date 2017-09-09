@@ -101,18 +101,28 @@ func (u *unstable) restore(s pb.Snapshot) {
 }
 
 func (u *unstable) truncateAndAppend(ents []pb.Entry) {
+	// current first entry Index
 	after := ents[0].Index
+
 	switch {
+	// append :     7 8 ...
+	// current: 5 6
+	// append directly
 	case after == u.offset+uint64(len(u.entries)):
 		// after is the next index in the u.entries
 		// directly append
 		u.entries = append(u.entries, ents...)
+	// append : 4 5 6 7 ...
+	// current:   5 6
+	// replace it
 	case after <= u.offset:
 		u.logger.Infof("replace the unstable entries from index %d", after)
 		// The log is being truncated to before our current offset
 		// portion, so set the offset and replace the entries
 		u.offset = after
 		u.entries = ents
+	// append :       8 9 ... 15
+	// current: 5 6 7 8 9 ...
 	default:
 		// truncate to after and copy to u.entries
 		// then append
