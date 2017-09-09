@@ -181,6 +181,7 @@ func StartNode(c *Config, peers []Peer) Node {
 		if err != nil {
 			panic("unexpected marshal error")
 		}
+		// first entry: conf change log
 		e := pb.Entry{Type: pb.EntryConfChange, Term: 1, Index: r.raftLog.lastIndex() + 1, Data: d}
 		r.raftLog.append(e)
 	}
@@ -241,7 +242,7 @@ func newNode() node {
 		propc:      make(chan pb.Message),
 		recvc:      make(chan pb.Message),
 		confc:      make(chan pb.ConfChange),
-		confstatec: make(chan pb.ConfState),
+		confstatec: make(chan pb.ConfState), // what the hell of this var ?
 		readyc:     make(chan Ready),
 		advancec:   make(chan struct{}),
 		// make tickc a buffered chan, so raft node can buffer some ticks when the node
@@ -293,6 +294,11 @@ func (n *node) run(r *raft) {
 			}
 		}
 
+		// lead: local lead record
+		// r.lead: raft leader
+
+		// detect leader status
+		// changes or be elected and even lost
 		if lead != r.lead {
 			if r.hasLeader() {
 				if lead == None {
@@ -307,6 +313,7 @@ func (n *node) run(r *raft) {
 			}
 			lead = r.lead
 		}
+		// or i am the leader i say nothing
 
 		select {
 		// TODO: maybe buffer the config propose if there exists one (the way
