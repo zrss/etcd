@@ -302,6 +302,7 @@ func (c *RaftCluster) ValidateConfigurationChange(cc raftpb.ConfChange) error {
 func (c *RaftCluster) AddMember(m *Member) {
 	c.Lock()
 	defer c.Unlock()
+	// seems add to v2 store ?
 	if c.store != nil {
 		mustSaveMemberToStore(c.store, m)
 	}
