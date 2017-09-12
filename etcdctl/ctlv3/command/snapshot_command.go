@@ -213,6 +213,7 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 	}
 
 	// add members again to persist them to the store we create.
+	// It seems a memory storage
 	st := store.New(etcdserver.StoreClusterPrefix, etcdserver.StoreKeysPrefix)
 	cl.SetStore(st)
 	for _, m := range cl.Members() {
@@ -296,6 +297,8 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 	}
 
 	// save snapshot
+	// Term: 1
+	// Index: The number of member in cluster
 	snapshotter := snap.New(snapdir)
 	if err := snapshotter.SaveSnap(raftSnap); err != nil {
 		panic(err)
