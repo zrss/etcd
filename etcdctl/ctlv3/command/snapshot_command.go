@@ -176,6 +176,7 @@ func snapshotRestoreCommandFunc(cmd *cobra.Command, args []string) {
 		ExitWithError(ExitBadArgs, err)
 	}
 
+	// generate cluster id and member id from initial-cluster
 	cl, cerr := membership.NewClusterFromURLsMap(restoreClusterToken, urlmap)
 	if cerr != nil {
 		ExitWithError(ExitBadArgs, cerr)
@@ -218,6 +219,8 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 		cl.AddMember(m)
 	}
 
+	// cluster and member metadata
+	// write to wal
 	m := cl.MemberByName(restoreName)
 	md := &etcdserverpb.Metadata{NodeID: uint64(m.ID), ClusterID: uint64(cl.ID())}
 	metadata, merr := md.Marshal()
@@ -230,7 +233,9 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 		ExitWithError(ExitIO, walerr)
 	}
 	defer w.Close()
+	//
 
+	// add entries for raft start
 	peers := make([]raft.Peer, len(cl.MemberIDs()))
 	for i, id := range cl.MemberIDs() {
 		ctx, err := json.Marshal((*cl).Member(id))
@@ -261,6 +266,9 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 		ents[i] = e
 	}
 
+	// add nodes entries is committed
+	// initial term 1
+	// save to wal
 	commit, term := uint64(len(ents)), uint64(1)
 
 	if err := w.Save(raftpb.HardState{
@@ -275,6 +283,7 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 		ExitWithError(ExitError, berr)
 	}
 
+	// first snapshot
 	raftSnap := raftpb.Snapshot{
 		Data: b,
 		Metadata: raftpb.SnapshotMetadata{
@@ -285,11 +294,14 @@ func makeWALAndSnap(waldir, snapdir string, cl *membership.RaftCluster) {
 			},
 		},
 	}
+
+	// save snapshot
 	snapshotter := snap.New(snapdir)
 	if err := snapshotter.SaveSnap(raftSnap); err != nil {
 		panic(err)
 	}
 
+	// write to wal
 	if err := w.SaveSnapshot(walpb.Snapshot{Index: commit, Term: term}); err != nil {
 		ExitWithError(ExitIO, err)
 	}
