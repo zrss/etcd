@@ -78,12 +78,14 @@ func newPipelineHandler(tr Transporter, r Raft, cid types.ID) http.Handler {
 }
 
 func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// pipeline only allow post request
 	if r.Method != "POST" {
 		w.Header().Set("Allow", "POST")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
+	// response current cluster id of raft in header
 	w.Header().Set("X-Etcd-Cluster-ID", h.cid.String())
 
 	if err := checkClusterCompatibilityFromHeader(r.Header, h.cid); err != nil {
@@ -91,6 +93,7 @@ func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// trace remote peer
 	if from, err := types.IDFromString(r.Header.Get("X-Server-From")); err != nil {
 		if urls := r.Header.Get("X-PeerURLs"); urls != "" {
 			h.tr.AddRemote(from, strings.Split(urls, ","))
@@ -116,8 +119,10 @@ func (h *pipelineHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// record message receive from [m.From] bytes
 	receivedBytes.WithLabelValues(types.ID(m.From).String()).Add(float64(len(b)))
 
+	// pass message to process of raft to handle it
 	if err := h.r.Process(context.TODO(), m); err != nil {
 		switch v := err.(type) {
 		case writerToResponse:
@@ -250,6 +255,7 @@ func newStreamHandler(tr *Transport, pg peerGetter, r Raft, id, cid types.ID) ht
 }
 
 func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// stream handler only accept GET method ?
 	if r.Method != "GET" {
 		w.Header().Set("Allow", "GET")
 		http.Error(w, "Method Not Allowed", http.StatusMethodNotAllowed)
@@ -264,6 +270,7 @@ func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// check stream type
 	var t streamType
 	switch path.Dir(r.URL.Path) {
 	case streamTypeMsgAppV2.endpoint():
@@ -288,6 +295,8 @@ func (h *streamHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "removed member", http.StatusGone)
 		return
 	}
+
+	// get peer from local
 	p := h.peerGetter.Get(from)
 	if p == nil {
 		// This may happen in following cases:
