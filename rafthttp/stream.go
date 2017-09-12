@@ -122,6 +122,7 @@ func startStreamWriter(id types.ID, status *peerStatus, fs *stats.FollowerStats,
 		status: status,
 		fs:     fs,
 		r:      r,
+		// sizeof(raftpb.Message) * 4096
 		msgc:   make(chan raftpb.Message, streamBufSize),
 		connc:  make(chan *outgoingConn),
 		stopc:  make(chan struct{}),
@@ -140,6 +141,7 @@ func (cw *streamWriter) run() {
 		flusher    http.Flusher
 		batched    int
 	)
+	// 5 / 3 seconds heartbeat interval
 	tickc := time.Tick(ConnReadTimeout / 3)
 	unflushed := 0
 
@@ -149,10 +151,12 @@ func (cw *streamWriter) run() {
 		select {
 		case <-heartbeatc:
 			err := enc.encode(&linkHeartbeatMessage)
+			// encode directly send the message ?
 			unflushed += linkHeartbeatMessage.Size()
 			if err == nil {
 				flusher.Flush()
 				batched = 0
+				// prometheus statistic
 				sentBytes.WithLabelValues(cw.peerID.String()).Add(float64(unflushed))
 				unflushed = 0
 				continue
@@ -160,8 +164,10 @@ func (cw *streamWriter) run() {
 
 			cw.status.deactivate(failureType{source: t.String(), action: "heartbeat"}, err.Error())
 
+			// prometheus statistic
 			sentFailures.WithLabelValues(cw.peerID.String()).Inc()
 			cw.close()
+
 			plog.Warningf("lost the TCP streaming connection with peer %s (%s writer)", cw.peerID, t)
 			heartbeatc, msgc = nil, nil
 
@@ -170,6 +176,7 @@ func (cw *streamWriter) run() {
 			if err == nil {
 				unflushed += m.Size()
 
+				// collect to flush
 				if len(msgc) == 0 || batched > streamBufSize/2 {
 					flusher.Flush()
 					sentBytes.WithLabelValues(cw.peerID.String()).Add(float64(unflushed))
@@ -249,6 +256,7 @@ func (cw *streamWriter) closeUnlocked() bool {
 	return true
 }
 
+// add available connect to streamWriter channel
 func (cw *streamWriter) attach(conn *outgoingConn) bool {
 	select {
 	case cw.connc <- conn:
@@ -468,6 +476,7 @@ func (cr *streamReader) dial(t streamType) (io.ReadCloser, error) {
 			cr.picker.unreachable(u)
 			return nil, err
 		}
+		// close immediately after ioutil.ReadAll
 		httputil.GracefulClose(resp)
 		cr.picker.unreachable(u)
 
