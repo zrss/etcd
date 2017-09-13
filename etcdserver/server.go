@@ -1684,10 +1684,13 @@ func (s *EtcdServer) parseProposeCtxErr(err error, start time.Time) error {
 		case types.ID(raft.None):
 			// TODO: return error to specify it happens because the cluster does not have leader now
 		case s.ID():
+			// previous I am the leader
+			// currently I can not connect to the quorum
 			if !isConnectedToQuorumSince(s.r.transport, start, s.ID(), s.cluster.Members()) {
 				return ErrTimeoutDueToConnectionLost
 			}
 		default:
+			// disconnected from leader
 			if !isConnectedSince(s.r.transport, start, lead) {
 				return ErrTimeoutDueToConnectionLost
 			}
