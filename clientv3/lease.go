@@ -271,6 +271,11 @@ func (l *lessor) KeepAliveOnce(ctx context.Context, id LeaseID) (*LeaseKeepAlive
 			}
 			return resp, err
 		}
+		// lost leader is not a halt err
+		// so it will keep keepAliveOnce
+		// but once occur network-isolated and
+		// this client always connect to a isolated etcd node
+		// then keep output no leader error
 		if isHaltErr(ctx, err) {
 			return nil, toErr(ctx, err)
 		}
