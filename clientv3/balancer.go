@@ -66,6 +66,7 @@ func newSimpleBalancer(eps []string) *simpleBalancer {
 	for i := range eps {
 		addrs[i].Addr = getHost(eps[i])
 	}
+	// notify lbWatcher
 	notifyCh <- addrs
 	sb := &simpleBalancer{
 		addrs:    addrs,
@@ -78,6 +79,7 @@ func newSimpleBalancer(eps []string) *simpleBalancer {
 	return sb
 }
 
+// Start do nothing
 func (b *simpleBalancer) Start(target string, config grpc.BalancerConfig) error { return nil }
 
 func (b *simpleBalancer) ConnectNotify() <-chan struct{} {
@@ -101,6 +103,7 @@ func getHost2ep(eps []string) map[string]string {
 	return hm
 }
 
+// notify grpc conn lbwatcher
 func (b *simpleBalancer) updateAddrs(eps []string) {
 	np := getHost2ep(eps)
 
@@ -129,6 +132,7 @@ func (b *simpleBalancer) updateAddrs(eps []string) {
 	b.notifyCh <- addrs
 }
 
+// what does the up means ?
 func (b *simpleBalancer) Up(addr grpc.Address) func(error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()

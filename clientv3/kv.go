@@ -126,6 +126,9 @@ func (kv *kv) Do(ctx context.Context, op Op) (OpResponse, error) {
 			return resp, nil
 		}
 
+		// check err code
+		// such as GRPC unavailable
+
 		if isHaltErr(ctx, err) {
 			return resp, toErr(ctx, err)
 		}

@@ -681,6 +681,8 @@ func (r *raft) Step(m pb.Message) error {
 	switch {
 	case m.Term == 0:
 		// local message
+
+	// receive a large term message
 	case m.Term > r.Term:
 		lead := m.From
 		if m.Type == pb.MsgVote || m.Type == pb.MsgPreVote {
@@ -734,6 +736,7 @@ func (r *raft) Step(m pb.Message) error {
 		return nil
 	}
 
+	// current term message
 	switch m.Type {
 	case pb.MsgHup:
 		if r.state != StateLeader {

@@ -272,7 +272,6 @@ func (n *node) run(r *raft) {
 	var readyc chan Ready
 	var advancec chan struct{}
 
-	// what the hell of these two var ?
 	var prevLastUnstablei, prevLastUnstablet uint64
 	var havePrevLastUnstablei bool
 	var prevSnapi uint64
@@ -313,13 +312,14 @@ func (n *node) run(r *raft) {
 			}
 			lead = r.lead
 		}
-		// or i am the leader i say nothing
+		// or previous lead is the same with r.lead then say nothing
 
 		select {
 		// TODO: maybe buffer the config propose if there exists one (the way
 		// described in raft dissertation)
 		// Currently it is dropped in Step silently.
 		case m := <-propc:
+			// why set From to r.id ?
 			m.From = r.id
 			r.Step(m)
 		case m := <-n.recvc:
@@ -514,15 +514,19 @@ func newReady(r *raft, prevSoftSt *SoftState, prevHardSt pb.HardState) Ready {
 		CommittedEntries: r.raftLog.nextEnts(),
 		Messages:         r.msgs,
 	}
+	// set SoftState for Ready
 	if softSt := r.softState(); !softSt.equal(prevSoftSt) {
 		rd.SoftState = softSt
 	}
+	// set HardState for Ready
 	if hardSt := r.hardState(); !isHardStateEqual(hardSt, prevHardSt) {
 		rd.HardState = hardSt
 	}
+	// set Snapshot for Ready
 	if r.raftLog.unstable.snapshot != nil {
 		rd.Snapshot = *r.raftLog.unstable.snapshot
 	}
+	// set readStates for Ready
 	if len(r.readStates) != 0 {
 		rd.ReadStates = r.readStates
 	}
