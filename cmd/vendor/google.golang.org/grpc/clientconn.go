@@ -666,10 +666,17 @@ func (ac *addrConn) resetTransport(closeTransport bool) error {
 			ac.mu.Unlock()
 			return errConnClosing
 		}
+
+		// if down not nil
+		// shut it down firstly
 		if ac.down != nil {
+			// notify balancer about address down
+			// then trigger balancer switch endpoints
 			ac.down(downErrorf(false, true, "%v", errNetworkIO))
 			ac.down = nil
 		}
+
+		// try to reconnect it
 		ac.state = Connecting
 		ac.stateCV.Broadcast()
 		t := ac.transport
@@ -733,6 +740,9 @@ func (ac *addrConn) resetTransport(closeTransport bool) error {
 			close(ac.ready)
 			ac.ready = nil
 		}
+
+		// reconnect successfully
+		// notify this conn is up
 		if ac.cc.dopts.balancer != nil {
 			ac.down = ac.cc.dopts.balancer.Up(ac.addr)
 		}
@@ -773,6 +783,7 @@ func (ac *addrConn) transportMonitor() {
 			}
 			return
 		case <-t.Error():
+			// encounter error not exist
 			select {
 			case <-ac.ctx.Done():
 				t.Close()
@@ -791,6 +802,8 @@ func (ac *addrConn) transportMonitor() {
 			ac.state = TransientFailure
 			ac.stateCV.Broadcast()
 			ac.mu.Unlock()
+
+			// but there is a err return by resetTransport will exist
 			if err := ac.resetTransport(true); err != nil {
 				ac.mu.Lock()
 				ac.printf("transport exiting: %v", err)
