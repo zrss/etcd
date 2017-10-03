@@ -243,7 +243,9 @@ type EtcdServer struct {
 // NewServer creates a new EtcdServer from the supplied configuration. The
 // configuration is considered static for the lifetime of the EtcdServer.
 func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
-	// seems a v2 storage
+	// a memory storage
+	// store dir and node in mem
+	// seems a v2 store implementation
 	st := store.New(StoreClusterPrefix, StoreKeysPrefix)
 
 	var (
@@ -438,6 +440,10 @@ func NewServer(cfg *ServerConfig) (srv *EtcdServer, err error) {
 
 		// v2
 		// reload v2 snapshot file
+		// yeah reload this snapshot file
+		// as it contains wal metadata
+		// but if there are nothing
+		// then wal read index from 0
 		snapshot, err = ss.Load()
 		if err != nil && err != snap.ErrNoSnapshot {
 			return nil, err
