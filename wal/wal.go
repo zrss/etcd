@@ -265,6 +265,7 @@ func (w *WAL) ReadAll() (metadata []byte, state raftpb.HardState, ents []raftpb.
 		case entryType:
 			e := mustUnmarshalEntry(rec.Data)
 			if e.Index > w.start.Index {
+				// why ?
 				ents = append(ents[:e.Index-w.start.Index-1], e)
 			}
 			w.enti = e.Index
