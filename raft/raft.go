@@ -1037,7 +1037,9 @@ func stepFollower(r *raft, m pb.Message) {
 			r.logger.Infof("%x no leader at term %d; dropping proposal", r.id, r.Term)
 			return
 		}
+		// forward to leader
 		m.To = r.lead
+		// just append to raft pb.Message ?
 		r.send(m)
 	case pb.MsgApp:
 		r.electionElapsed = 0

@@ -75,12 +75,15 @@ func (ms *maintenanceServer) Defragment(ctx context.Context, sr *pb.DefragmentRe
 }
 
 func (ms *maintenanceServer) Snapshot(sr *pb.SnapshotRequest, srv pb.Maintenance_SnapshotServer) error {
+	// boltdb tx wrapper
+	// hold read txn a while
 	snap := ms.bg.Backend().Snapshot()
 	pr, pw := io.Pipe()
 
 	defer pr.Close()
 
 	go func() {
+		// tx.WriteTo
 		snap.WriteTo(pw)
 		if err := snap.Close(); err != nil {
 			plog.Errorf("error closing snapshot (%v)", err)

@@ -51,7 +51,10 @@ func (tx *Tx) init(db *DB) {
 
 	// Copy over the root bucket.
 	tx.root = newBucket(tx)
+
 	tx.root.bucket = &bucket{}
+
+	// meta().root
 	*tx.root.bucket = tx.meta.root
 
 	// Increment the transaction id and add a page cache for writable transactions.
@@ -174,6 +177,7 @@ func (tx *Tx) Commit() error {
 	// Free the freelist and allocate new pages for it. This will overestimate
 	// the size of the freelist but not underestimate the size (which would be bad).
 	tx.db.freelist.free(tx.meta.txid, tx.db.page(tx.meta.freelist))
+	fmt.Printf("freelist pending_cnt: %d, freelist free_cnt: %d\n", tx.db.freelist.pending_count(), tx.db.freelist.free_count())
 	p, err := tx.allocate((tx.db.freelist.size() / tx.db.pageSize) + 1)
 	if err != nil {
 		tx.rollback()

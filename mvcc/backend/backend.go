@@ -347,6 +347,8 @@ func NewDefaultTmpBackend() (*backend, string) {
 }
 
 type snapshot struct {
+	// this struct provide WriteTo and Size implementation
+	// amazing go -_-#
 	*bolt.Tx
 }
 

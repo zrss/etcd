@@ -8,9 +8,11 @@ import (
 
 const (
 	// MaxKeySize is the maximum length of a key, in bytes.
+	// 32 KB
 	MaxKeySize = 32768
 
 	// MaxValueSize is the maximum length of a value, in bytes.
+	// 2G
 	MaxValueSize = (1 << 31) - 2
 )
 

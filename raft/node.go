@@ -312,7 +312,8 @@ func (n *node) run(r *raft) {
 			}
 			lead = r.lead
 		}
-		// or previous lead is the same with r.lead then say nothing
+		// or previous lead is
+		// the same with r.lead then say nothing
 
 		select {
 		// TODO: maybe buffer the config propose if there exists one (the way
@@ -377,6 +378,7 @@ func (n *node) run(r *raft) {
 			r.readStates = nil
 			advancec = n.advancec
 		case <-advancec:
+			r.logger.Infof("handle advancec")
 			if prevHardSt.Commit != 0 {
 				r.raftLog.appliedTo(prevHardSt.Commit)
 			}
@@ -387,6 +389,7 @@ func (n *node) run(r *raft) {
 			r.raftLog.stableSnapTo(prevSnapi)
 			advancec = nil
 		case c := <-n.status:
+			r.logger.Infof("handle status")
 			c <- getStatus(r)
 		case <-n.stop:
 			close(n.done)

@@ -56,6 +56,14 @@ func (p *page) meta() *meta {
 
 // leafPageElement retrieves the leaf node by index
 func (p *page) leafPageElement(index uint16) *leafPageElement {
+	// 这种写法究竟什么意思
+	// t1 = (unsafe.Pointer(&p.ptr)
+	// t2 = (*[0x7FFFFFF]leafPageElement)(t1)
+	// &(t2)[index]
+	// 等会儿把 page 的内存结构画一下
+
+	// 主要是 0x7FFFFFF 这个值哪儿来的 ?
+	// 可以 overflow 吗
 	n := &((*[0x7FFFFFF]leafPageElement)(unsafe.Pointer(&p.ptr)))[index]
 	return n
 }
@@ -70,6 +78,7 @@ func (p *page) leafPageElements() []leafPageElement {
 
 // branchPageElement retrieves the branch node by index
 func (p *page) branchPageElement(index uint16) *branchPageElement {
+	// 类似 leafPageElements
 	return &((*[0x7FFFFFF]branchPageElement)(unsafe.Pointer(&p.ptr)))[index]
 }
 
@@ -108,15 +117,20 @@ func (n *branchPageElement) key() []byte {
 
 // leafPageElement represents a node on a leaf page.
 type leafPageElement struct {
-	flags uint32
-	pos   uint32
-	ksize uint32
-	vsize uint32
+	flags uint32 // 4 bytes
+	pos   uint32 // 4 bytes
+	ksize uint32 // 4 bytes
+	vsize uint32 // 4 bytes
+
+	// pos = 16 that remain space to store key and value
+	// ksize = 8 that 64 bytes for key
 }
 
 // key returns a byte slice of the node key.
 func (n *leafPageElement) key() []byte {
 	buf := (*[maxAllocSize]byte)(unsafe.Pointer(n))
+	// [:n.ksize:n.ksize]
+	// 后面的 n.ksize 指定的是 slice 的 cap
 	return (*[maxAllocSize]byte)(unsafe.Pointer(&buf[n.pos]))[:n.ksize:n.ksize]
 }
 
